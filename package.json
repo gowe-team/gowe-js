@@ -1,0 +1,67 @@
+{
+  "name": "gowe",
+  "version": "0.1.0",
+  "description": "Node.js and TypeScript implementation of a fast, compact binary wire format for modern data transport.",
+  "type": "module",
+  "packageManager": "pnpm@10.18.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gowe-team/gowe-js.git"
+  },
+  "homepage": "https://github.com/gowe-team/gowe-js#readme",
+  "bugs": {
+    "url": "https://github.com/gowe-team/gowe-js/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "native",
+    "wasm/pkg",
+    "crates",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm build:napi && pnpm build:wasm && pnpm build:ts",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:napi": "cargo build --manifest-path Cargo.toml -p gowe-napi --release && node ./scripts/copy-napi.mjs",
+    "build:wasm": "wasm-pack build crates/gowe-wasm --target bundler --out-dir ../../wasm/pkg --out-name gowe_wasm",
+    "format": "prettier --write \"{README.md,package.json,tsconfig.json,.github/workflows/*.yml,scripts/**/*.mjs,src/**/*.ts,tests/**/*.mjs}\"",
+    "format:check": "prettier --check \"{README.md,package.json,tsconfig.json,.github/workflows/*.yml,scripts/**/*.mjs,src/**/*.ts,tests/**/*.mjs}\"",
+    "typecheck": "tsc --noEmit",
+    "test:rust": "cargo test --manifest-path Cargo.toml -p gowe-bridge",
+    "test:node": "pnpm build:napi && pnpm build:ts && node --test --test-concurrency=1 \"tests/**/*.test.mjs\"",
+    "test": "pnpm test:rust && pnpm test:node",
+    "prepack": "pnpm build",
+    "release:check": "node ./scripts/verify-tag-version.mjs",
+    "clean": "rimraf dist native wasm target"
+  },
+  "keywords": [
+    "gowe",
+    "rust",
+    "napi",
+    "wasm",
+    "typescript"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "prettier": "^3.6.2",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.2"
+  }
+}

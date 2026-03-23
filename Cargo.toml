@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/gowe-bridge", "crates/gowe-napi", "crates/gowe-wasm"]
+resolver = "2"
