@@ -20,7 +20,7 @@ Initial public release of the JavaScript and TypeScript bindings for Recurram.
 
 ### Changed
 
-- Renamed npm package from `recurram` to `@recurram/core` to publish under the `@recurram` scope, as the unscoped name was unavailable on npm.
+- Renamed npm package from `gowe` to `recurram`
 - Raised the Node.js runtime baseline to `24+` across local tooling, documentation, and publish workflows.
 - Expanded the public API with fast-mode helpers for compact encoding, raw transport JSON encoding, direct encoding, and additional session encoder variants.
 - Optimized bridge, N-API, WASM, and TypeScript runtime paths to reduce overhead for encode, decode, batch, session, and compact transport operations.
