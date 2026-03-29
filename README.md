@@ -49,16 +49,11 @@ What it validates:
 
 ```ts
 import {
-  init,
   encode,
   decode,
   createSessionEncoder,
-  toTransportJson,
-  encodeTransportJson,
   type RecurramValue,
 } from "recurram";
-
-await init({ prefer: "napi" });
 
 const value: RecurramValue = {
   id: 1001n,
@@ -72,26 +67,30 @@ const roundtrip = decode(bytes);
 const session = createSessionEncoder();
 const first = session.encode(value);
 const patch = session.encodePatch({ ...value, name: "alicia" });
-
-const prepared = toTransportJson(value);
-const fastest = encodeTransportJson(prepared);
 ```
 
-## High-throughput transport JSON APIs
+Node.js picks the N-API backend automatically on first use. The default APIs already use the fastest benchmarked path for each operation, so you should not need to choose between transport JSON, compact JSON, or direct object modes.
 
-For hot paths where you can prepare payloads ahead of time, use transport JSON APIs to reduce JS-side conversion overhead:
+## Advanced APIs
 
-- `toTransportJson(value)` / `fromTransportJson(json)`
-- `toTransportJsonBatch(values)`
-- `encodeTransportJson(valueJson)` / `decodeToTransportJson(bytes)`
-- `encodeBatchTransportJson(valuesJson)`
+If you need raw transport helpers, explicit schema encoding, or internal-format control, import the advanced entrypoint:
 
-`SessionEncoder` also supports raw methods:
+```ts
+import {
+  createSessionEncoder,
+  encodeTransportJson,
+  encodeWithSchema,
+  toTransportJson,
+} from "recurram/advanced";
+```
 
-- `encodeTransportJson(valueJson)`
-- `encodeBatchTransportJson(valuesJson)`
-- `encodePatchTransportJson(valueJson)`
-- `encodeMicroBatchTransportJson(valuesJson)`
+This entrypoint contains:
+
+- transport JSON helpers
+- compact JSON helpers
+- direct object helpers
+- schema encoding helpers
+- full raw session encoder methods
 
 ## Usage (Browser)
 
@@ -104,7 +103,7 @@ const bytes = encode({ id: 1n, role: "admin" });
 const value = decode(bytes);
 ```
 
-If you want to pass a custom WASM source, use `wasmInput`:
+Browser/WASM still requires explicit async initialization. If you want to pass a custom WASM source, use `wasmInput`:
 
 ```ts
 await init({ prefer: "wasm", wasmInput: "/assets/recurram_wasm_bg.wasm" });

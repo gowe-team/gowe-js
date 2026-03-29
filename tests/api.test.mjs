@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createSessionEncoder, decode, encode, init } from "../dist/index.js";
 import {
-  createSessionEncoder,
-  decode,
-  encode,
+  createSessionEncoder as createAdvancedSessionEncoder,
   encodeBatch,
   encodeWithSchema,
-  init,
-} from "../dist/index.js";
+} from "../dist/advanced.js";
 
 test("rejects wasm backend in node", async () => {
   await assert.rejects(
@@ -18,9 +16,6 @@ test("rejects wasm backend in node", async () => {
 });
 
 test("encodes and decodes with bigint and binary", async () => {
-  const runtime = await init({ prefer: "napi" });
-  assert.equal(runtime, "napi");
-
   const payload = {
     id: 123n,
     name: "alice",
@@ -40,7 +35,7 @@ test("encodes and decodes with bigint and binary", async () => {
   assert.deepEqual(decoded.scores, [1n, 2n, 3n]);
 });
 
-test("supports schema and batch APIs", async () => {
+test("supports schema and batch APIs through the advanced entrypoint", async () => {
   const schema = {
     schemaId: 1,
     name: "User",
@@ -93,4 +88,16 @@ test("supports session encoder APIs", async () => {
   session.reset();
   const afterReset = session.encode({ id: 9n, role: "owner" });
   assert.ok(afterReset.length > 0);
+});
+
+test("supports advanced session encoder APIs", async () => {
+  const session = createAdvancedSessionEncoder();
+
+  const first = session.encode({ id: 1n, role: "admin" });
+  const patch = session.encodePatchTransportJson(
+    '{"t":"map","v":[["id",{"t":"u64","v":"1"}],["role",{"t":"string","v":"member"}]]}',
+  );
+
+  assert.ok(first.length > 0);
+  assert.ok(patch.length > 0);
 });

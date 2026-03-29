@@ -300,7 +300,9 @@ function fromBase64(encoded: string): Uint8Array {
 type CompactValue = readonly [number] | readonly [number, unknown];
 
 export function serializeCompact(value: RecurramValue): string {
-  return JSON.stringify(toCompactValue(value));
+  const out: string[] = [];
+  appendCompactValue(value, out);
+  return out.join("");
 }
 
 export function deserializeCompact(json: string): RecurramValue {
@@ -309,19 +311,25 @@ export function deserializeCompact(json: string): RecurramValue {
 }
 
 export function serializeCompactBatch(values: RecurramValue[]): string {
-  const out = new Array(values.length);
+  const out: string[] = ["["];
   for (let index = 0; index < values.length; index += 1) {
-    out[index] = toCompactValue(values[index]);
+    if (index > 0) {
+      out.push(",");
+    }
+    appendCompactValue(values[index], out);
   }
-  return JSON.stringify(out);
+  out.push("]");
+  return out.join("");
 }
 
-function toCompactValue(value: RecurramValue): CompactValue {
+function appendCompactValue(value: RecurramValue, out: string[]): void {
   if (value === null) {
-    return [0];
+    out.push("[0]");
+    return;
   }
   if (typeof value === "boolean") {
-    return [1, value];
+    out.push(value ? "[1,true]" : "[1,false]");
+    return;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
@@ -333,35 +341,46 @@ function toCompactValue(value: RecurramValue): CompactValue {
           "unsafe integer number detected; use bigint for 64-bit integers",
         );
       }
-      return value >= 0 ? [3, String(value)] : [2, String(value)];
+      out.push(value >= 0 ? '[3,"' : '[2,"', String(value), '"]');
+      return;
     }
-    return [4, value];
+    out.push("[4,", String(value), "]");
+    return;
   }
   if (typeof value === "bigint") {
     if (value >= 0n) {
       if (value > MAX_U64) {
         throw new Error("u64 overflow");
       }
-      return [3, value.toString()];
+      out.push('[3,"', value.toString(), '"]');
+      return;
     }
     if (value < MIN_I64 || value > MAX_I64) {
       throw new Error("i64 overflow");
     }
-    return [2, value.toString()];
+    out.push('[2,"', value.toString(), '"]');
+    return;
   }
   if (typeof value === "string") {
-    return [5, value];
+    out.push("[5,");
+    appendJsonString(value, out);
+    out.push("]");
+    return;
   }
   if (value instanceof Uint8Array) {
-    return [6, toBase64(value)];
+    out.push('[6,"', toBase64(value), '"]');
+    return;
   }
   if (Array.isArray(value)) {
-    const length = value.length;
-    const out = new Array(length);
-    for (let index = 0; index < length; index += 1) {
-      out[index] = toCompactValue(value[index]);
+    out.push("[7,[");
+    for (let index = 0; index < value.length; index += 1) {
+      if (index > 0) {
+        out.push(",");
+      }
+      appendCompactValue(value[index], out);
     }
-    return [7, out];
+    out.push("]]");
+    return;
   }
 
   if (typeof value !== "object" || value === null) {
@@ -376,12 +395,59 @@ function toCompactValue(value: RecurramValue): CompactValue {
   // Map: flat array [key1, val1, key2, val2, ...]
   const objectValue = value as Record<string, RecurramValue>;
   const keys = Object.keys(objectValue);
-  const flat = new Array(keys.length * 2);
+  out.push("[8,[");
   for (let index = 0; index < keys.length; index += 1) {
-    flat[index * 2] = keys[index];
-    flat[index * 2 + 1] = toCompactValue(objectValue[keys[index]]);
+    if (index > 0) {
+      out.push(",");
+    }
+    appendJsonString(keys[index], out);
+    out.push(",");
+    appendCompactValue(objectValue[keys[index]], out);
   }
-  return [8, flat];
+  out.push("]]");
+}
+
+function appendJsonString(value: string, out: string[]): void {
+  out.push('"');
+  let start = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    let escape: string | null = null;
+    switch (code) {
+      case 0x22:
+        escape = '\\"';
+        break;
+      case 0x5c:
+        escape = "\\\\";
+        break;
+      case 0x0a:
+        escape = "\\n";
+        break;
+      case 0x0d:
+        escape = "\\r";
+        break;
+      case 0x09:
+        escape = "\\t";
+        break;
+      default:
+        if (code < 0x20) {
+          escape = `\\u00${code.toString(16).padStart(2, "0")}`;
+        }
+        break;
+    }
+    if (escape === null) {
+      continue;
+    }
+    if (start < index) {
+      out.push(value.slice(start, index));
+    }
+    out.push(escape);
+    start = index + 1;
+  }
+  if (start < value.length) {
+    out.push(value.slice(start));
+  }
+  out.push('"');
 }
 
 function fromCompactValue(cv: CompactValue): RecurramValue {

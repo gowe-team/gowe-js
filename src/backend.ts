@@ -1,5 +1,9 @@
 import type { InitOptions } from "./types.js";
 import type { RuntimeBackend, RuntimeKind } from "./runtime/types.js";
+import {
+  createNodeRuntimeBackend,
+  type NativeModule,
+} from "./runtime/node-adapter.js";
 
 let backend: RuntimeBackend | null = null;
 let initPromise: Promise<RuntimeBackend> | null = null;
@@ -21,12 +25,19 @@ export async function initBackend(
 }
 
 export function requireBackend(): RuntimeBackend {
-  if (!backend) {
-    throw new Error(
-      "recurram is not initialized. Call await init() before encode/decode.",
-    );
+  if (backend) {
+    return backend;
   }
-  return backend;
+
+  const autoLoaded = tryLoadDefaultBackendSync();
+  if (autoLoaded) {
+    backend = autoLoaded;
+    return autoLoaded;
+  }
+
+  throw new Error(
+    "recurram is not initialized. Call await init() before encode/decode in browser runtimes.",
+  );
 }
 
 async function loadBackend(options: InitOptions): Promise<RuntimeBackend> {
@@ -58,4 +69,35 @@ async function loadBackend(options: InitOptions): Promise<RuntimeBackend> {
 
 function isNodeRuntime(): boolean {
   return typeof process !== "undefined" && Boolean(process.versions?.node);
+}
+
+function tryLoadDefaultBackendSync(): RuntimeBackend | null {
+  if (!isNodeRuntime()) {
+    return null;
+  }
+
+  const nodeProcess = process as typeof process & {
+    getBuiltinModule?: (id: string) => unknown;
+  };
+  const moduleApi = (nodeProcess.getBuiltinModule?.("node:module") ??
+    nodeProcess.getBuiltinModule?.("module")) as
+    | { createRequire(url: string): (id: string) => unknown }
+    | undefined;
+  const urlApi = (nodeProcess.getBuiltinModule?.("node:url") ??
+    nodeProcess.getBuiltinModule?.("url")) as
+    | { fileURLToPath(url: URL): string }
+    | undefined;
+
+  if (!moduleApi || !urlApi) {
+    throw new Error(
+      "Node auto-init requires process.getBuiltinModule; call await init() explicitly if unavailable.",
+    );
+  }
+
+  const require = moduleApi.createRequire(import.meta.url);
+  const modulePath = urlApi.fileURLToPath(
+    new URL("../native/recurram_napi.node", import.meta.url),
+  );
+  const native = require(modulePath) as NativeModule;
+  return createNodeRuntimeBackend(native);
 }
