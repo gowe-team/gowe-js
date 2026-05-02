@@ -9,3 +9,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 recurram-bridge = { path = "../recurram-bridge" }
 wasm-bindgen = "0.2"
+getrandom = { version = "0.3", features = ["wasm_js"] }

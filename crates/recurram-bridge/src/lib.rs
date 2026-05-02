@@ -369,6 +369,11 @@ pub fn encode_batch_direct_from_json(jv: serde_json::Value) -> Result<Vec<u8>> {
     encode_batch(&values).map_err(Into::into)
 }
 
+/// Encode a batch from a pre-converted Vec<Value> (conversion happens in NAPI layer).
+pub fn encode_batch_native_raw(values: Vec<Value>) -> Result<Vec<u8>> {
+    encode_batch(&values).map_err(Into::into)
+}
+
 impl BridgeSessionEncoder {
     pub fn encode_direct(&mut self, transport: TransportValue) -> Result<Vec<u8>> {
         let value = transport_to_value(transport)?;

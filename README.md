@@ -7,6 +7,8 @@ JavaScript/TypeScript bindings for `recurram-rust` with two backends:
 
 Integers decode as `bigint` by default (i64/u64 safe handling).
 
+This release line targets the Recurram v2 wire format.
+
 ## Requirements
 
 - Node.js 24+

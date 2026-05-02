@@ -1,7 +1,6 @@
 import { initBackend, requireBackend } from "./backend.js";
 import { encodeFast, tryDecodeFast } from "./fast-codec.js";
 import {
-  deserializeCompact,
   serializeCompact,
   serializeCompactBatch,
   serializeSessionOptions,
@@ -48,10 +47,10 @@ export function decode(bytes: Uint8Array): RecurramValue {
     } else {
       decodeImpl = (input) => {
         const decoded = tryDecodeFast(input);
-        if (decoded !== undefined) {
-          return decoded;
+        if (decoded === undefined) {
+          throw new Error("recurram: failed to decode v2 payload");
         }
-        return deserializeCompact(backend.decodeToCompactJson(input));
+        return decoded;
       };
     }
   }

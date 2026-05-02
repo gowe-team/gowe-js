@@ -1,7 +1,6 @@
 import { initBackend, requireBackend } from "./backend.js";
 import { encodeFast, tryDecodeFast } from "./fast-codec.js";
 import {
-  deserializeCompact,
   deserializeValue,
   fromTransportValue,
   serializeCompact,
@@ -57,9 +56,8 @@ export function encode(value: RecurramValue): Uint8Array {
 
 export function encodeBatch(values: RecurramValue[]): Uint8Array {
   if (!encodeBatchImpl) {
-    const backend = requireBackend();
-    encodeBatchImpl = (input) =>
-      backend.encodeBatchCompactJson(serializeCompactBatch(input));
+    requireBackend();
+    encodeBatchImpl = (input) => encodeFast(input);
   }
   return encodeBatchImpl(values);
 }
@@ -72,10 +70,10 @@ export function decode(bytes: Uint8Array): RecurramValue {
     } else {
       decodeImpl = (input) => {
         const decoded = tryDecodeFast(input);
-        if (decoded !== undefined) {
-          return decoded;
+        if (decoded === undefined) {
+          throw new Error("recurram: failed to decode v2 payload");
         }
-        return deserializeCompact(backend.decodeToCompactJson(input));
+        return decoded;
       };
     }
   }

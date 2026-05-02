@@ -8,9 +8,9 @@ use napi::{
 use napi_derive::napi;
 use recurram_bridge::{
     decode_direct, decode_to_compact_json, decode_to_transport_json, encode_batch_compact_json,
-    encode_batch_direct_from_json, encode_batch_transport_json, encode_compact_json,
-    encode_direct_from_json, encode_transport_json, encode_with_schema_transport_json, BridgeError,
-    BridgeSessionEncoder, TransportValue,
+    encode_batch_direct_from_json, encode_batch_native_raw, encode_batch_transport_json,
+    encode_compact_json, encode_direct_from_json, encode_transport_json,
+    encode_with_schema_transport_json, BridgeError, BridgeSessionEncoder, TransportValue,
 };
 use recurram_core::{
     decode as decode_value,
@@ -902,8 +902,13 @@ pub fn encode_native_napi(env: Env, value: JsUnknown) -> napi::Result<Buffer> {
 
 #[napi(js_name = "decodeNative")]
 pub fn decode_native_napi(env: Env, bytes: &[u8]) -> napi::Result<JsUnknown> {
-    if let Some(value) = try_decode_native_root_message(&env, bytes)? {
-        return Ok(value);
+    // Compact protocol messages start with 0x00/0x01/0x02; v2 bytes do not.
+    // Skip the compact-protocol attempt for v2 bytes to avoid wasted work.
+    let first = bytes.first().copied().unwrap_or(0xff);
+    if first <= 0x02 {
+        if let Some(value) = try_decode_native_root_message(&env, bytes)? {
+            return Ok(value);
+        }
     }
     let value = decode_value(bytes).map_err(|e| invalid_arg(&e.to_string()))?;
     value_to_js_unknown(&env, value)
@@ -963,6 +968,107 @@ pub fn decode_direct_napi(bytes: &[u8]) -> napi::Result<serde_json::Value> {
 #[napi(js_name = "encodeBatchDirect")]
 pub fn encode_batch_direct_napi(values: serde_json::Value) -> napi::Result<Buffer> {
     encode_batch_direct_from_json(values)
+        .map(Buffer::from)
+        .map_err(to_napi_error)
+}
+
+fn js_to_recurram_value(env: &Env, value: JsUnknown) -> napi::Result<Value> {
+    match value.get_type()? {
+        ValueType::Null | ValueType::Undefined => Ok(Value::Null),
+        ValueType::Boolean => {
+            let raw = unsafe { value.raw() };
+            Ok(Value::Bool(get_bool_raw(env, raw)?))
+        }
+        ValueType::Number => {
+            let raw = unsafe { value.raw() };
+            let f = get_double_raw(env, raw)?;
+            if !f.is_finite() {
+                return Err(invalid_arg("number values must be finite"));
+            }
+            if f.fract() == 0.0 && f.abs() <= MAX_SAFE_INTEGER_F64 {
+                if f >= 0.0 {
+                    Ok(Value::U64(f as u64))
+                } else {
+                    Ok(Value::I64(f as i64))
+                }
+            } else {
+                Ok(Value::F64(f))
+            }
+        }
+        ValueType::String => {
+            let raw = unsafe { value.raw() };
+            with_raw_utf8(env, raw, |s| Ok(Value::String(s.to_owned())))
+        }
+        ValueType::BigInt => {
+            let raw = unsafe { value.raw() };
+            let (unsigned, unsigned_lossless) = get_bigint_u64_raw(env, raw)?;
+            if unsigned_lossless {
+                return Ok(Value::U64(unsigned));
+            }
+            let (signed, signed_lossless) = get_bigint_i64_raw(env, raw)?;
+            if signed_lossless {
+                return Ok(Value::I64(signed));
+            }
+            Err(invalid_arg("bigint value is out of range for recurram"))
+        }
+        ValueType::Object => {
+            let object = unsafe { value.cast::<JsObject>() };
+            let object_raw = unsafe { object.raw() };
+            if is_array_raw(env, object_raw)? {
+                let length = get_array_length_raw(env, object_raw)? as usize;
+                let mut arr = Vec::with_capacity(length);
+                for i in 0..length {
+                    let item = get_element_raw(env, object_raw, i as u32)?;
+                    arr.push(js_to_recurram_value(env, item)?);
+                }
+                return Ok(Value::Array(arr));
+            }
+            if is_buffer_raw(env, object_raw)? {
+                let buffer = unsafe { value.cast::<JsBuffer>() };
+                let bytes = buffer.into_value()?;
+                return Ok(Value::Binary(bytes.as_ref().to_vec()));
+            }
+            if is_typedarray_raw(env, object_raw)? {
+                let typed_array = unsafe { value.cast::<JsTypedArray>() }.into_value()?;
+                return match typed_array.typedarray_type {
+                    TypedArrayType::Uint8 | TypedArrayType::Uint8Clamped => {
+                        Ok(Value::Binary(AsRef::<[u8]>::as_ref(&typed_array).to_vec()))
+                    }
+                    _ => Err(invalid_arg("unsupported typed array; use Uint8Array")),
+                };
+            }
+            let property_names = own_enumerable_property_names(&object)?;
+            let property_names_raw = unsafe { property_names.raw() };
+            let property_count = get_array_length_raw(env, property_names_raw)? as usize;
+            let mut map = Vec::with_capacity(property_count);
+            for i in 0..property_count {
+                let key = get_element_raw(env, property_names_raw, i as u32)?;
+                let key_raw = unsafe { key.raw() };
+                let item = get_property_raw(env, object_raw, key_raw)?;
+                let key_str = with_raw_utf8(env, key_raw, |s| Ok(s.to_owned()))?;
+                let val = js_to_recurram_value(env, item)?;
+                map.push((key_str, val));
+            }
+            Ok(Value::Map(map))
+        }
+        _ => Err(invalid_arg("unsupported value type")),
+    }
+}
+
+#[napi(js_name = "encodeBatchNativeRaw")]
+pub fn encode_batch_native_raw_napi(env: Env, values: JsUnknown) -> napi::Result<Buffer> {
+    let object = unsafe { values.cast::<JsObject>() };
+    let object_raw = unsafe { object.raw() };
+    if !is_array_raw(&env, object_raw)? {
+        return Err(invalid_arg("encodeBatchNativeRaw: expected array"));
+    }
+    let length = get_array_length_raw(&env, object_raw)? as usize;
+    let mut rust_values = Vec::with_capacity(length);
+    for i in 0..length {
+        let item = get_element_raw(&env, object_raw, i as u32)?;
+        rust_values.push(js_to_recurram_value(&env, item)?);
+    }
+    encode_batch_native_raw(rust_values)
         .map(Buffer::from)
         .map_err(to_napi_error)
 }

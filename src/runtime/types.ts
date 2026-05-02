@@ -42,5 +42,6 @@ export interface RuntimeBackend {
   encodeBatchDirect(values: TransportValueObj[]): Uint8Array;
   encodeCompactJson(json: string): Uint8Array;
   encodeBatchCompactJson(json: string): Uint8Array;
+  encodeBatchNativeRaw?: (values: unknown) => Uint8Array;
   createSessionEncoder(optionsJson?: string): RuntimeSessionEncoder;
 }

@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - GitHub issue templates (feature request and bug report) and pull request template.
 
+## [2.0.0] - 2026-05-01
+
+### Added
+
+- Recurram v2 wire tags with fixint/fixstr/fixarray/fixmap families in the fast TypeScript codec.
+- Per-message key and string interning (`key_ref`, `str_ref`) for smaller one-shot JSON payloads.
+- In-array same-shape object encoding via shape definition reuse.
+
+### Changed
+
+- `encode()` in the JS fast path now emits v2 wire bytes by default.
+- Project release version bumped to `2.0.0` for the v2 clean break.
+
 ## [0.1.0] - 2026-03-25
 
 Initial public release of the JavaScript and TypeScript bindings for Recurram.

@@ -40,6 +40,7 @@ export interface NativeModule {
   encodeBatchDirect(values: TransportValueObj[]): Uint8Array;
   encodeCompactJson(json: string): Uint8Array;
   encodeBatchCompactJson(json: string): Uint8Array;
+  encodeBatchNativeRaw(values: unknown): Uint8Array;
   createSessionEncoder(optionsJson?: string): NativeSessionEncoder;
 }
 
@@ -63,6 +64,8 @@ export function createNodeRuntimeBackend(native: NativeModule): RuntimeBackend {
     encodeCompactJson: (json) => asUint8Array(native.encodeCompactJson(json)),
     encodeBatchCompactJson: (json) =>
       asUint8Array(native.encodeBatchCompactJson(json)),
+    encodeBatchNativeRaw: (values) =>
+      asUint8Array(native.encodeBatchNativeRaw(values)),
     createSessionEncoder: (optionsJson) => {
       const inner = native.createSessionEncoder(optionsJson);
       return wrapSessionEncoder(inner);

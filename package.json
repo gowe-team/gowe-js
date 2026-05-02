@@ -1,6 +1,6 @@
 {
   "name": "recurram",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "Node.js and TypeScript implementation of a fast, compact binary wire format for modern data transport.",
   "type": "module",
   "packageManager": "pnpm@10.18.1",

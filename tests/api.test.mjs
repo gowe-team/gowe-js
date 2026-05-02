@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createSessionEncoder, decode, encode, init } from "../dist/index.js";
+import { encodeFast, tryDecodeFast } from "../dist/fast-codec.js";
 import {
   createSessionEncoder as createAdvancedSessionEncoder,
   encodeBatch,
-  encodeTransportJson,
   encodeWithSchema,
 } from "../dist/advanced.js";
 
@@ -50,12 +50,66 @@ test("decodes u64 values above i64 range", async () => {
   assert.equal(decoded.id, id);
 });
 
-test("falls back when native fast decode sees string references", async () => {
-  const bytes = encodeTransportJson(
-    '{"t":"map","v":[["a",{"t":"string","v":"x"}],["b",{"t":"string","v":"x"}]]}',
-  );
-  const decoded = decode(bytes);
-  assert.deepEqual(decoded, { a: "x", b: "x" });
+test("fast codec round-trips single-small benchmark payload", async () => {
+  const payload = {
+    id: 1234,
+    userId: 987654,
+    name: "alice",
+    active: true,
+    score: 98.5,
+    tags: ["edge", "premium", "ap-northeast-1"],
+    profile: {
+      country: "JP",
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    },
+  };
+
+  const bytes = encodeFast(payload);
+  const decoded = tryDecodeFast(bytes);
+  assert.notEqual(decoded, undefined);
+  assert.deepEqual(decoded, {
+    id: 1234n,
+    userId: 987654n,
+    name: "alice",
+    active: true,
+    score: 98.5,
+    tags: ["edge", "premium", "ap-northeast-1"],
+    profile: {
+      country: "JP",
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    },
+  });
+});
+
+test("fast codec round-trips representative batch-homogeneous row", async () => {
+  const payload = {
+    id: 42,
+    userId: 100042,
+    active: true,
+    tier: "standard",
+    country: "JP",
+    usage: {
+      requests: 5042,
+      errors: 8,
+    },
+  };
+
+  const bytes = encodeFast(payload);
+  const decoded = tryDecodeFast(bytes);
+  assert.notEqual(decoded, undefined);
+  assert.deepEqual(decoded, {
+    id: 42n,
+    userId: 100042n,
+    active: true,
+    tier: "standard",
+    country: "JP",
+    usage: {
+      requests: 5042n,
+      errors: 8n,
+    },
+  });
 });
 
 test("rejects unsupported root values on the native fast path", async () => {
