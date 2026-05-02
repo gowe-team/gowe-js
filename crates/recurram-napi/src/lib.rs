@@ -900,6 +900,326 @@ pub fn encode_native_napi(env: Env, value: JsUnknown) -> napi::Result<Buffer> {
     Ok(Buffer::from(out))
 }
 
+// ── Direct v2 format → JS decoder ────────────────────────────────────────
+
+struct V2DecodeState {
+    keys: Vec<sys::napi_value>,
+    strings: Vec<sys::napi_value>,
+    shapes: Vec<Vec<sys::napi_value>>,
+}
+
+fn try_decode_v2_native(env: &Env, bytes: &[u8]) -> napi::Result<Option<sys::napi_value>> {
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    let mut reader = Reader::new(bytes);
+    let mut state = V2DecodeState {
+        keys: Vec::new(),
+        strings: Vec::new(),
+        shapes: Vec::new(),
+    };
+    let value = decode_v2_value_raw(env, &mut reader, &mut state)?;
+    if !reader.is_eof() {
+        return Ok(None);
+    }
+    Ok(Some(value))
+}
+
+fn decode_v2_value_raw(
+    env: &Env,
+    reader: &mut Reader<'_>,
+    state: &mut V2DecodeState,
+) -> napi::Result<sys::napi_value> {
+    let tag = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
+    decode_v2_tag_raw(env, reader, state, tag)
+}
+
+fn decode_v2_tag_raw(
+    env: &Env,
+    reader: &mut Reader<'_>,
+    state: &mut V2DecodeState,
+    tag: u8,
+) -> napi::Result<sys::napi_value> {
+    match tag {
+        0x00..=0x7F => create_bigint_i64_value_raw(env, tag as i64),
+        0xE0..=0xFF => create_bigint_i64_value_raw(env, (tag as i8) as i64),
+        0x80..=0x9F => {
+            let len = (tag & 0x1F) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let s = decode_v2_str_bytes_raw(env, bytes)?;
+            state.strings.push(s);
+            Ok(s)
+        }
+        0xA0..=0xAF => {
+            let len = (tag & 0x0F) as usize;
+            decode_v2_array_raw(env, reader, state, len)
+        }
+        0xB0..=0xBF => {
+            let len = (tag & 0x0F) as usize;
+            decode_v2_map_raw(env, reader, state, len)
+        }
+        0xC0 => create_null_raw(env),
+        0xC1 => create_boolean_raw(env, false),
+        0xC2 => create_boolean_raw(env, true),
+        0xC3 => {
+            let b = reader.read_exact(8).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_double_value_raw(env, f64::from_le_bytes(b.try_into().unwrap()))
+        }
+        0xC4 => {
+            let v = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_u64_value_raw(env, v as u64)
+        }
+        0xC5 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_u64_value_raw(env, u16::from_le_bytes([b[0], b[1]]) as u64)
+        }
+        0xC6 => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_u64_value_raw(
+                env,
+                u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64,
+            )
+        }
+        0xC7 => {
+            let b = reader.read_exact(8).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_u64_value_raw(env, u64::from_le_bytes(b.try_into().unwrap()))
+        }
+        0xC8 => {
+            let v = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_i64_value_raw(env, (v as i8) as i64)
+        }
+        0xC9 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_i64_value_raw(env, i16::from_le_bytes([b[0], b[1]]) as i64)
+        }
+        0xCA => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_i64_value_raw(
+                env,
+                i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as i64,
+            )
+        }
+        0xCB => {
+            let b = reader.read_exact(8).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_bigint_i64_value_raw(env, i64::from_le_bytes(b.try_into().unwrap()))
+        }
+        0xCC => {
+            let len = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            let data = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_buffer_copy_raw(env, data)
+        }
+        0xCD => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u16::from_le_bytes([b[0], b[1]]) as usize;
+            let data = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_buffer_copy_raw(env, data)
+        }
+        0xCE => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+            let data = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            create_buffer_copy_raw(env, data)
+        }
+        0xCF => {
+            let len = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let s = decode_v2_str_bytes_raw(env, bytes)?;
+            state.strings.push(s);
+            Ok(s)
+        }
+        0xD0 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u16::from_le_bytes([b[0], b[1]]) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let s = decode_v2_str_bytes_raw(env, bytes)?;
+            state.strings.push(s);
+            Ok(s)
+        }
+        0xD1 => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let s = decode_v2_str_bytes_raw(env, bytes)?;
+            state.strings.push(s);
+            Ok(s)
+        }
+        0xD2 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u16::from_le_bytes([b[0], b[1]]) as usize;
+            decode_v2_array_raw(env, reader, state, len)
+        }
+        0xD3 => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+            decode_v2_array_raw(env, reader, state, len)
+        }
+        0xD4 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u16::from_le_bytes([b[0], b[1]]) as usize;
+            decode_v2_map_raw(env, reader, state, len)
+        }
+        0xD5 => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+            decode_v2_map_raw(env, reader, state, len)
+        }
+        0xD8 => {
+            let id = reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            state
+                .keys
+                .get(id)
+                .copied()
+                .ok_or_else(|| invalid_arg("unknown key_ref id"))
+        }
+        0xD9 => {
+            let id = reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            state
+                .strings
+                .get(id)
+                .copied()
+                .ok_or_else(|| invalid_arg("unknown str_ref id"))
+        }
+        _ => Err(invalid_arg("unknown v2 tag")),
+    }
+}
+
+#[inline]
+fn decode_v2_str_bytes_raw(env: &Env, bytes: &[u8]) -> napi::Result<sys::napi_value> {
+    if bytes.is_ascii() {
+        create_string_bytes_raw(env, bytes)
+    } else {
+        let s = std::str::from_utf8(bytes).map_err(|_| invalid_arg("invalid utf-8"))?;
+        create_string_raw(env, s)
+    }
+}
+
+fn decode_v2_array_raw(
+    env: &Env,
+    reader: &mut Reader<'_>,
+    state: &mut V2DecodeState,
+    len: usize,
+) -> napi::Result<sys::napi_value> {
+    let array = create_array_with_length_raw(env, len)?;
+    let array_raw = unsafe { array.raw() };
+    if len == 0 {
+        return Ok(array_raw);
+    }
+    let first_tag = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
+    if first_tag == 0xD6 {
+        // SHAPE_DEF: shape_id, key_count, keys, then len rows
+        let shape_id =
+            reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+        let key_count =
+            reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+        let mut shape_keys: Vec<sys::napi_value> = Vec::with_capacity(key_count);
+        for _ in 0..key_count {
+            shape_keys.push(decode_v2_key_raw(env, reader, state)?);
+        }
+        if shape_id >= state.shapes.len() {
+            state.shapes.resize(shape_id + 1, Vec::new());
+        }
+        state.shapes[shape_id] = shape_keys.clone();
+        for i in 0..len {
+            let obj = create_object_raw(env)?;
+            let obj_raw = unsafe { obj.raw() };
+            for &key in &shape_keys {
+                let val = decode_v2_value_raw(env, reader, state)?;
+                napi::check_status!(
+                    unsafe { sys::napi_set_property(env.raw(), obj_raw, key, val) },
+                    "v2 shape set_property error"
+                )?;
+            }
+            napi::check_status!(
+                unsafe { sys::napi_set_element(env.raw(), array_raw, i as u32, obj_raw) },
+                "v2 shape set_element error"
+            )?;
+        }
+        return Ok(array_raw);
+    }
+    // Non-shape array: decode first element from already-read tag
+    let first = decode_v2_tag_raw(env, reader, state, first_tag)?;
+    napi::check_status!(
+        unsafe { sys::napi_set_element(env.raw(), array_raw, 0, first) },
+        "v2 array set_element[0] error"
+    )?;
+    for i in 1..len {
+        let val = decode_v2_value_raw(env, reader, state)?;
+        napi::check_status!(
+            unsafe { sys::napi_set_element(env.raw(), array_raw, i as u32, val) },
+            "v2 array set_element error"
+        )?;
+    }
+    Ok(array_raw)
+}
+
+fn decode_v2_map_raw(
+    env: &Env,
+    reader: &mut Reader<'_>,
+    state: &mut V2DecodeState,
+    len: usize,
+) -> napi::Result<sys::napi_value> {
+    let object = create_object_raw(env)?;
+    let obj_raw = unsafe { object.raw() };
+    for _ in 0..len {
+        let key = decode_v2_key_raw(env, reader, state)?;
+        let val = decode_v2_value_raw(env, reader, state)?;
+        napi::check_status!(
+            unsafe { sys::napi_set_property(env.raw(), obj_raw, key, val) },
+            "v2 map set_property error"
+        )?;
+    }
+    Ok(obj_raw)
+}
+
+fn decode_v2_key_raw(
+    env: &Env,
+    reader: &mut Reader<'_>,
+    state: &mut V2DecodeState,
+) -> napi::Result<sys::napi_value> {
+    let tag = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
+    match tag {
+        0xD8 => {
+            let id = reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            state
+                .keys
+                .get(id)
+                .copied()
+                .ok_or_else(|| invalid_arg("unknown key_ref id"))
+        }
+        0x80..=0x9F => {
+            let len = (tag & 0x1F) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let key = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(key);
+            Ok(key)
+        }
+        0xCF => {
+            let len = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))? as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let key = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(key);
+            Ok(key)
+        }
+        0xD0 => {
+            let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u16::from_le_bytes([b[0], b[1]]) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let key = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(key);
+            Ok(key)
+        }
+        0xD1 => {
+            let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
+            let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+            let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
+            let key = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(key);
+            Ok(key)
+        }
+        _ => Err(invalid_arg("map key must be key_ref or string")),
+    }
+}
+
 #[napi(js_name = "decodeNative")]
 pub fn decode_native_napi(env: Env, bytes: &[u8]) -> napi::Result<JsUnknown> {
     // Compact protocol messages start with 0x00/0x01/0x02; v2 bytes do not.
@@ -909,6 +1229,10 @@ pub fn decode_native_napi(env: Env, bytes: &[u8]) -> napi::Result<JsUnknown> {
         if let Some(value) = try_decode_native_root_message(&env, bytes)? {
             return Ok(value);
         }
+    }
+    // Direct v2→JS decoder: avoids intermediate Rust Value allocations
+    if let Some(raw) = try_decode_v2_native(&env, bytes)? {
+        return Ok(unsafe { JsUnknown::from_raw_unchecked(env.raw(), raw) });
     }
     let value = decode_value(bytes).map_err(|e| invalid_arg(&e.to_string()))?;
     value_to_js_unknown(&env, value)

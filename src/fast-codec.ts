@@ -174,11 +174,14 @@ class ByteWriter {
 
   writeVaruint(value: number | bigint): void {
     if (typeof value === "number") {
+      if (value < 0x80) {
+        this.pushByte(value);
+        return;
+      }
       let current = value;
       while (current >= 0x80) {
-        const low = current % 0x80;
-        this.pushByte(low + 0x80);
-        current = Math.floor(current / 0x80);
+        this.pushByte((current & 0x7f) | 0x80);
+        current = Math.floor(current / 128);
       }
       this.pushByte(current);
       return;
@@ -516,21 +519,56 @@ function writeValue(
     }
 
     if (Number.isInteger(value)) {
-      if (value >= 0 && value <= 0x7f) {
-        writer.pushByte(value);
-        return;
-      }
       if (!Number.isSafeInteger(value)) {
         throw new Error(
           "unsafe integer number detected; use bigint for 64-bit integers",
         );
       }
-
       if (value >= 0) {
-        writeU64(BigInt(value), writer);
+        if (value <= 0x7f) {
+          writer.pushByte(value);
+          return;
+        }
+        if (value <= 0xff) {
+          writer.pushByte(TAG_U8);
+          writer.pushByte(value);
+          return;
+        }
+        if (value <= 0xffff) {
+          writer.pushByte(TAG_U16);
+          writer.pushU16(value);
+          return;
+        }
+        if (value <= 0xffffffff) {
+          writer.pushByte(TAG_U32);
+          writer.pushU32(value);
+          return;
+        }
+        writer.pushByte(TAG_U64);
+        writer.pushU64(BigInt(value));
         return;
       }
-      writeI64(BigInt(value), writer);
+      if (value >= -32) {
+        writer.pushByte(value);
+        return;
+      }
+      if (value >= -128) {
+        writer.pushByte(TAG_I8);
+        writer.pushByte(value);
+        return;
+      }
+      if (value >= -32768) {
+        writer.pushByte(TAG_I16);
+        writer.pushU16(value);
+        return;
+      }
+      if (value >= -2147483648) {
+        writer.pushByte(TAG_I32);
+        writer.pushU32(value);
+        return;
+      }
+      writer.pushByte(TAG_I64);
+      writer.pushU64(BigInt.asUintN(64, BigInt(value)));
       return;
     }
 
@@ -1189,10 +1227,6 @@ function getCachedUtf8(
   cache: Map<string, Uint8Array>,
   value: string,
 ): Uint8Array {
-  if (value.length > 64) {
-    return textEncoder.encode(value);
-  }
-
   const cached = cache.get(value);
   if (cached !== undefined) {
     return cached;
