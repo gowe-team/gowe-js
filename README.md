@@ -144,11 +144,14 @@ pnpm build
 pnpm pack
 ```
 
-GitHub Actions publish:
+GitHub Actions publish uses [npm trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers/)—no long-lived `NPM_TOKEN` secret.
 
-1. Add repository secret `NPM_TOKEN`.
-2. Bump `version` in `package.json`.
-3. Create and push matching tag `v<version>`.
+One-time setup on [npmjs.com](https://www.npmjs.com/): open the package → **Settings** → **Trusted Publisher** → **GitHub Actions**, then set **Organization or user** `recurram`, **Repository** `recurram-js`, and **Workflow filename** `publish-npm.yml` (exact name, including `.yml`). See also [GitHub Actions OIDC](https://docs.github.com/en/actions/concepts/security/openid-connect).
+
+Release steps:
+
+1. Bump `version` in `package.json`.
+2. Create and push matching tag `v<version>`.
 
 Example:
 
@@ -157,7 +160,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow `.github/workflows/publish-npm.yml` verifies tag/version match and then runs `pnpm publish`.
+The workflow `.github/workflows/publish-npm.yml` verifies tag/version match and then runs `npm publish` (OIDC authentication via `id-token: write`).
 
 ## License
 
