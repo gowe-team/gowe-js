@@ -1,0 +1,222 @@
+name: PR Bench & Bundle
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-bench-bundle-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Compare bench & bundle vs base
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      BENCH_TIME_MS: "500"
+      BENCH_WARMUP_MS: "100"
+      BENCH_BACKEND: napi
+      BENCH_MODE: full
+      REPORTS_DIR: ${{ github.workspace }}/reports
+      PR_TOOLS_DIR: ${{ github.workspace }}/pr-tools
+
+    steps:
+      - name: Checkout recurram-js (PR head)
+        uses: actions/checkout@v4
+        with:
+          path: workspace/recurram-js
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Checkout recurram-rust
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/recurram-rust
+          path: workspace/recurram-rust
+
+      - name: Checkout recurram-bench
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/recurram-bench
+          path: workspace/recurram-bench
+
+      - name: Stash report tooling from PR head
+        run: |
+          mkdir -p "$PR_TOOLS_DIR" "$REPORTS_DIR"
+          cp workspace/recurram-js/scripts/measure-bundle.mjs "$PR_TOOLS_DIR/"
+          cp workspace/recurram-js/scripts/build-pr-report.mjs "$PR_TOOLS_DIR/"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            workspace/recurram-js/pnpm-lock.yaml
+            workspace/recurram-bench/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: workspace/recurram-js -> workspace/recurram-js/target
+
+      - name: Setup wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Resolve commit metadata
+        id: shas
+        working-directory: workspace/recurram-js
+        run: |
+          set -euo pipefail
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_short=$(git rev-parse --short "$head_sha" 2>/dev/null || echo "${head_sha:0:7}")
+          if ! git cat-file -e "$base_sha" 2>/dev/null; then
+            git fetch --depth=1 origin "$base_sha"
+          fi
+          base_short=$(git rev-parse --short "$base_sha" 2>/dev/null || echo "${base_sha:0:7}")
+          {
+            echo "head_sha=$head_sha"
+            echo "head_short=$head_short"
+            echo "base_sha=$base_sha"
+            echo "base_short=$base_short"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build PR head
+        id: build_pr
+        working-directory: workspace/recurram-js
+        continue-on-error: true
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Measure PR bundle
+        if: steps.build_pr.outcome == 'success'
+        run: |
+          node "$PR_TOOLS_DIR/measure-bundle.mjs" \
+            --cwd workspace/recurram-js \
+            --out "$REPORTS_DIR/pr-bundle.json"
+
+      - name: Install bench dependencies (PR)
+        if: steps.build_pr.outcome == 'success'
+        working-directory: workspace/recurram-bench
+        run: pnpm install --frozen-lockfile
+
+      - name: Run benchmark (PR)
+        id: bench_pr
+        if: steps.build_pr.outcome == 'success'
+        working-directory: workspace/recurram-bench
+        continue-on-error: true
+        run: |
+          pnpm exec tsx src/benchmark.ts \
+            --backend "$BENCH_BACKEND" \
+            --mode "$BENCH_MODE" \
+            --time-ms "$BENCH_TIME_MS" \
+            --warmup-ms "$BENCH_WARMUP_MS" \
+            --json-out "$REPORTS_DIR/pr-bench.json"
+
+      - name: Switch recurram-js to base
+        id: switch_base
+        working-directory: workspace/recurram-js
+        run: |
+          set -euo pipefail
+          git clean -ffdx
+          git checkout -f "${{ steps.shas.outputs.base_sha }}"
+
+      - name: Build base
+        id: build_base
+        working-directory: workspace/recurram-js
+        continue-on-error: true
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Measure base bundle
+        if: steps.build_base.outcome == 'success'
+        run: |
+          node "$PR_TOOLS_DIR/measure-bundle.mjs" \
+            --cwd workspace/recurram-js \
+            --out "$REPORTS_DIR/base-bundle.json"
+
+      - name: Install bench dependencies (base)
+        if: steps.build_base.outcome == 'success'
+        working-directory: workspace/recurram-bench
+        run: pnpm install --frozen-lockfile
+
+      - name: Run benchmark (base)
+        id: bench_base
+        if: steps.build_base.outcome == 'success'
+        working-directory: workspace/recurram-bench
+        continue-on-error: true
+        run: |
+          pnpm exec tsx src/benchmark.ts \
+            --backend "$BENCH_BACKEND" \
+            --mode "$BENCH_MODE" \
+            --time-ms "$BENCH_TIME_MS" \
+            --warmup-ms "$BENCH_WARMUP_MS" \
+            --json-out "$REPORTS_DIR/base-bench.json"
+
+      - name: Build comment body
+        if: always()
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ steps.shas.outputs.head_sha }}
+          HEAD_SHORT: ${{ steps.shas.outputs.head_short }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ steps.shas.outputs.base_sha }}
+          BASE_SHORT: ${{ steps.shas.outputs.base_short }}
+          SERVER_URL: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pr_args=()
+          base_args=()
+          if [ -f "$REPORTS_DIR/pr-bench.json" ]; then
+            pr_args+=(--pr-bench "$REPORTS_DIR/pr-bench.json")
+          fi
+          if [ -f "$REPORTS_DIR/base-bench.json" ]; then
+            base_args+=(--base-bench "$REPORTS_DIR/base-bench.json")
+          fi
+          if [ -f "$REPORTS_DIR/pr-bundle.json" ]; then
+            pr_args+=(--pr-bundle "$REPORTS_DIR/pr-bundle.json")
+          fi
+          if [ -f "$REPORTS_DIR/base-bundle.json" ]; then
+            base_args+=(--base-bundle "$REPORTS_DIR/base-bundle.json")
+          fi
+          repo_url="${SERVER_URL}/${REPO}"
+          pr_label="[#${PR_NUMBER}](${repo_url}/pull/${PR_NUMBER}) ([${HEAD_SHORT}](${repo_url}/commit/${HEAD_SHA}))"
+          base_label="[${BASE_REF}](${repo_url}/tree/${BASE_REF}) ([${BASE_SHORT}](${repo_url}/commit/${BASE_SHA}))"
+          node "$PR_TOOLS_DIR/build-pr-report.mjs" \
+            "${pr_args[@]}" "${base_args[@]}" \
+            --pr-label "$pr_label" \
+            --base-label "$base_label" \
+            --out "$REPORTS_DIR/comment.md"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-bench-bundle-reports
+          path: reports/
+          if-no-files-found: ignore
+
+      - name: Post sticky comment
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: recurram-pr-bench-bundle
+          path: reports/comment.md
