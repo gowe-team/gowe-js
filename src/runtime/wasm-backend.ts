@@ -3,6 +3,7 @@ import type {
   RuntimeSessionEncoder,
   TransportValueObj,
 } from "./types.js";
+import type { WasmInput } from "../types.js";
 
 interface WasmSessionEncoder {
   encodeTransportJson(valueJson: string): Uint8Array;
@@ -17,7 +18,7 @@ interface WasmSessionEncoder {
 }
 
 interface WasmModule {
-  default: (input?: unknown) => Promise<unknown>;
+  default: (input?: WasmInput) => Promise<unknown>;
   encodeTransportJson(valueJson: string): Uint8Array;
   decodeToTransportJson(bytes: Uint8Array): string;
   encodeWithSchemaTransportJson(
@@ -29,7 +30,7 @@ interface WasmModule {
 }
 
 export async function loadWasmBackend(
-  wasmInput?: unknown,
+  wasmInput?: WasmInput,
 ): Promise<RuntimeBackend> {
   const moduleUrl = new URL("../../wasm/pkg/recurram_wasm.js", import.meta.url);
   const wasm = (await import(moduleUrl.href)) as WasmModule;

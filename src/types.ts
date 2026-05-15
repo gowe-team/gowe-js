@@ -35,7 +35,14 @@ export interface SessionOptions {
   unknownReferencePolicy?: UnknownReferencePolicy;
 }
 
+export type WasmInput =
+  | URL
+  | Request
+  | Response
+  | BufferSource
+  | Promise<Response | BufferSource>;
+
 export interface InitOptions {
   prefer?: "napi" | "wasm";
-  wasmInput?: unknown;
+  wasmInput?: WasmInput;
 }

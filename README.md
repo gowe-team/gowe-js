@@ -105,11 +105,16 @@ const bytes = encode({ id: 1n, role: "admin" });
 const value = decode(bytes);
 ```
 
-Browser/WASM still requires explicit async initialization. If you want to pass a custom WASM source, use `wasmInput`:
+Browser/WASM still requires explicit async initialization. If you want to pass a custom WASM source, use `wasmInput` with an explicit, trusted value from your application's asset pipeline:
 
 ```ts
-await init({ prefer: "wasm", wasmInput: "/assets/recurram_wasm_bg.wasm" });
+await init({
+  prefer: "wasm",
+  wasmInput: new URL("/assets/recurram_wasm_bg.wasm", import.meta.url),
+});
 ```
+
+Do not forward `wasmInput` from user input or other untrusted configuration, because WASM initialization can fetch and instantiate the provided source.
 
 ## TypeScript types
 
