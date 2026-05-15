@@ -48,7 +48,8 @@
     "test": "pnpm test:rust && pnpm test:node",
     "prepack": "pnpm build",
     "release:check": "node ./scripts/verify-tag-version.mjs",
-    "clean": "rimraf dist native wasm target"
+    "clean": "rimraf dist native wasm target",
+    "prepare": "husky"
   },
   "keywords": [
     "recurram",
@@ -65,7 +66,10 @@
     "node": ">=24"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
     "@types/node": "^24.1.0",
+    "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.2"
