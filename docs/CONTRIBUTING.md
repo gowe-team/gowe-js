@@ -25,7 +25,8 @@ Requirements:
 pnpm install
 pnpm build
 pnpm test
-pnpm format:check
+pnpm fmt:check
+pnpm lint
 ```
 
 ## Commit Messages
@@ -58,7 +59,7 @@ Use the pull request template and fill in every required section. PR bodies are 
 ## Contribution Checklist
 
 - Tests added or updated for behavior changes
-- `pnpm test` and `pnpm format:check` pass locally
+- `pnpm test`, `pnpm fmt:check`, and `pnpm lint` pass locally
 - Documentation updated when the public API changes
 - Commit messages follow Conventional Commits
 

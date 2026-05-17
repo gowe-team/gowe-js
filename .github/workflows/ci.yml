@@ -5,6 +5,54 @@ on:
   pull_request:
 
 jobs:
+  fmt:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Oxfmt check
+        run: pnpm fmt:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Oxlint
+        run: pnpm lint
+
   check:
     runs-on: ubuntu-latest
 
@@ -40,9 +88,6 @@ jobs:
 
       - name: Build WASM
         run: pnpm build:wasm
-
-      - name: Prettier check
-        run: pnpm format:check
 
       - name: Type check
         run: pnpm typecheck

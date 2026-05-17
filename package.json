@@ -40,8 +40,10 @@
     "build:ts": "tsc -p tsconfig.json",
     "build:napi": "cargo build --manifest-path Cargo.toml -p recurram-napi --release && node ./scripts/copy-napi.mjs",
     "build:wasm": "wasm-pack build crates/recurram-wasm --target bundler --out-dir ../../wasm/pkg --out-name recurram_wasm --no-opt",
-    "format": "prettier --write \"{README.md,package.json,tsconfig.json,.github/**/*.yml,scripts/**/*.mjs,src/**/*.ts,tests/**/*.mjs}\"",
-    "format:check": "prettier --check \"{README.md,package.json,tsconfig.json,.github/**/*.yml,scripts/**/*.mjs,src/**/*.ts,tests/**/*.mjs}\"",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "oxlint src scripts tests",
+    "lint:fix": "oxlint --fix src scripts tests",
     "typecheck": "tsc --noEmit",
     "test:rust": "cargo test --manifest-path Cargo.toml -p recurram-bridge",
     "test:node": "pnpm build:napi && pnpm build:ts && node --test --test-concurrency=1 \"tests/**/*.test.mjs\"",
@@ -70,7 +72,8 @@
     "@commitlint/config-conventional": "^19.8.1",
     "@types/node": "^24.1.0",
     "husky": "^9.1.7",
-    "prettier": "^3.6.2",
+    "oxfmt": "^0.50.0",
+    "oxlint": "^1.65.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.2"
   }

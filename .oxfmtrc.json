@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "proseWrap": "never",
+  "tabWidth": 2,
+  "useTabs": false,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 80,
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "dist/",
+    "native/",
+    "wasm/pkg/",
+    "target/",
+    "node_modules/"
+  ]
+}

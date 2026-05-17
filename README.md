@@ -28,11 +28,13 @@ Build steps:
 2. Build WASM package (`wasm/pkg/*`)
 3. Build TypeScript output (`dist/*`)
 
-## Formatting
+## Formatting and lint
 
 ```bash
-pnpm format
-pnpm format:check
+pnpm fmt
+pnpm fmt:check
+pnpm lint
+pnpm lint:fix
 ```
 
 ## Test
