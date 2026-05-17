@@ -1,20 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-function nullProto(value) {
-  if (Array.isArray(value)) {
-    return value.map(nullProto);
-  }
-  if (value !== null && typeof value === "object") {
-    const out = Object.create(null);
-    for (const [key, entry] of Object.entries(value)) {
-      out[key] = nullProto(entry);
-    }
-    return out;
-  }
-  return value;
-}
-
 import { createSessionEncoder, decode, encode, init } from "../dist/index.js";
 import { encodeFast, tryDecodeFast } from "../dist/fast-codec.js";
 import { fromTransportValue } from "../dist/transport.js";
@@ -83,22 +69,19 @@ test("fast codec round-trips single-small benchmark payload", async () => {
   const bytes = encodeFast(payload);
   const decoded = tryDecodeFast(bytes);
   assert.notEqual(decoded, undefined);
-  assert.deepEqual(
-    decoded,
-    nullProto({
-      id: 1234n,
-      userId: 987654n,
-      name: "alice",
-      active: true,
-      score: 98.5,
-      tags: ["edge", "premium", "ap-northeast-1"],
-      profile: {
-        country: "JP",
-        locale: "ja-JP",
-        timeZone: "Asia/Tokyo",
-      },
-    }),
-  );
+  assert.deepEqual(decoded, {
+    id: 1234n,
+    userId: 987654n,
+    name: "alice",
+    active: true,
+    score: 98.5,
+    tags: ["edge", "premium", "ap-northeast-1"],
+    profile: {
+      country: "JP",
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    },
+  });
 });
 
 test("fast codec round-trips representative batch-homogeneous row", async () => {
@@ -117,20 +100,17 @@ test("fast codec round-trips representative batch-homogeneous row", async () => 
   const bytes = encodeFast(payload);
   const decoded = tryDecodeFast(bytes);
   assert.notEqual(decoded, undefined);
-  assert.deepEqual(
-    decoded,
-    nullProto({
-      id: 42n,
-      userId: 100042n,
-      active: true,
-      tier: "standard",
-      country: "JP",
-      usage: {
-        requests: 5042n,
-        errors: 8n,
-      },
-    }),
-  );
+  assert.deepEqual(decoded, {
+    id: 42n,
+    userId: 100042n,
+    active: true,
+    tier: "standard",
+    country: "JP",
+    usage: {
+      requests: 5042n,
+      errors: 8n,
+    },
+  });
 });
 
 test("rejects unsupported root values on the native fast path", async () => {
@@ -228,9 +208,9 @@ test("rejects prototype pollution keys when decoding maps", async () => {
     encodeFast(JSON.parse('{"__proto__":{"polluted":true},"safe":"ok"}')),
   );
   assert.notEqual(fastDecoded, undefined);
-  assert.equal(Object.getPrototypeOf(fastDecoded), null);
   assert.equal(fastDecoded.polluted, undefined);
   assert.equal(fastDecoded.safe, "ok");
+  assert.equal(Object.hasOwn(fastDecoded, "__proto__"), false);
 });
 
 test("rejects prototype pollution keys in transport map conversion", async () => {
@@ -241,7 +221,7 @@ test("rejects prototype pollution keys in transport map conversion", async () =>
       ["safe", { t: "string", v: "ok" }],
     ],
   });
-  assert.equal(Object.getPrototypeOf(decoded), null);
   assert.equal(decoded.polluted, undefined);
   assert.equal(decoded.safe, "ok");
+  assert.equal(Object.hasOwn(decoded, "__proto__"), false);
 });
