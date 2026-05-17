@@ -50,6 +50,14 @@ fn to_napi_error(error: BridgeError) -> napi::Error {
     napi::Error::from_reason(error.to_string())
 }
 
+fn is_safe_map_key_bytes(bytes: &[u8]) -> bool {
+    !matches!(bytes, b"__proto__" | b"constructor" | b"prototype")
+}
+
+fn is_safe_map_key(name: &str) -> bool {
+    is_safe_map_key_bytes(name.as_bytes())
+}
+
 fn invalid_arg(message: &str) -> napi::Error {
     napi::Error::new(napi::Status::InvalidArg, message.to_owned())
 }
@@ -136,6 +144,9 @@ fn set_named_property_cached(
     name: &str,
     value: JsUnknown,
 ) -> napi::Result<()> {
+    if !is_safe_map_key(name) {
+        return Ok(());
+    }
     with_cached_property_name(name, |cstring| {
         napi::check_status!(
             unsafe {
@@ -155,6 +166,9 @@ fn set_named_property_fast(
     name: &str,
     value: sys::napi_value,
 ) -> napi::Result<()> {
+    if !is_safe_map_key(name) {
+        return Ok(());
+    }
     let bytes = name.as_bytes();
     if bytes.len() < 64 && !bytes.contains(&0) {
         let mut buf = [0u8; 64];
@@ -904,8 +918,30 @@ pub fn encode_native_napi(env: Env, value: JsUnknown) -> napi::Result<Buffer> {
 
 struct V2DecodeState {
     keys: Vec<sys::napi_value>,
+    key_safe: Vec<bool>,
     strings: Vec<sys::napi_value>,
     shapes: Vec<Vec<sys::napi_value>>,
+    shape_key_safe: Vec<Vec<bool>>,
+}
+
+struct V2MapKey {
+    raw: sys::napi_value,
+    safe: bool,
+}
+
+fn set_v2_map_property(
+    env: &Env,
+    object: sys::napi_value,
+    key: V2MapKey,
+    value: sys::napi_value,
+) -> napi::Result<()> {
+    if key.safe {
+        napi::check_status!(
+            unsafe { sys::napi_set_property(env.raw(), object, key.raw, value) },
+            "v2 map set_property error"
+        )?;
+    }
+    Ok(())
 }
 
 fn try_decode_v2_native(env: &Env, bytes: &[u8]) -> napi::Result<Option<sys::napi_value>> {
@@ -915,8 +951,10 @@ fn try_decode_v2_native(env: &Env, bytes: &[u8]) -> napi::Result<Option<sys::nap
     let mut reader = Reader::new(bytes);
     let mut state = V2DecodeState {
         keys: Vec::new(),
+        key_safe: Vec::new(),
         strings: Vec::new(),
         shapes: Vec::new(),
+        shape_key_safe: Vec::new(),
     };
     let value = decode_v2_value_raw(env, &mut reader, &mut state)?;
     if !reader.is_eof() {
@@ -1112,21 +1150,31 @@ fn decode_v2_array_raw(
         let key_count =
             reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
         let mut shape_keys: Vec<sys::napi_value> = Vec::with_capacity(key_count);
+        let mut shape_key_safe: Vec<bool> = Vec::with_capacity(key_count);
         for _ in 0..key_count {
-            shape_keys.push(decode_v2_key_raw(env, reader, state)?);
+            let key = decode_v2_key_raw(env, reader, state)?;
+            shape_keys.push(key.raw);
+            shape_key_safe.push(key.safe);
         }
         if shape_id >= state.shapes.len() {
             state.shapes.resize(shape_id + 1, Vec::new());
+            state.shape_key_safe.resize(shape_id + 1, Vec::new());
         }
         state.shapes[shape_id] = shape_keys.clone();
+        state.shape_key_safe[shape_id] = shape_key_safe.clone();
         for i in 0..len {
             let obj = create_object_raw(env)?;
             let obj_raw = unsafe { obj.raw() };
-            for &key in &shape_keys {
+            for index in 0..shape_keys.len() {
                 let val = decode_v2_value_raw(env, reader, state)?;
-                napi::check_status!(
-                    unsafe { sys::napi_set_property(env.raw(), obj_raw, key, val) },
-                    "v2 shape set_property error"
+                set_v2_map_property(
+                    env,
+                    obj_raw,
+                    V2MapKey {
+                        raw: shape_keys[index],
+                        safe: shape_key_safe[index],
+                    },
+                    val,
                 )?;
             }
             napi::check_status!(
@@ -1163,10 +1211,7 @@ fn decode_v2_map_raw(
     for _ in 0..len {
         let key = decode_v2_key_raw(env, reader, state)?;
         let val = decode_v2_value_raw(env, reader, state)?;
-        napi::check_status!(
-            unsafe { sys::napi_set_property(env.raw(), obj_raw, key, val) },
-            "v2 map set_property error"
-        )?;
+        set_v2_map_property(env, obj_raw, key, val)?;
     }
     Ok(obj_raw)
 }
@@ -1175,46 +1220,60 @@ fn decode_v2_key_raw(
     env: &Env,
     reader: &mut Reader<'_>,
     state: &mut V2DecodeState,
-) -> napi::Result<sys::napi_value> {
+) -> napi::Result<V2MapKey> {
     let tag = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))?;
     match tag {
         0xD8 => {
             let id = reader.read_varuint().map_err(|e| invalid_arg(&e.to_string()))? as usize;
-            state
+            let raw = state
                 .keys
                 .get(id)
                 .copied()
-                .ok_or_else(|| invalid_arg("unknown key_ref id"))
+                .ok_or_else(|| invalid_arg("unknown key_ref id"))?;
+            let safe = state
+                .key_safe
+                .get(id)
+                .copied()
+                .ok_or_else(|| invalid_arg("unknown key_ref id"))?;
+            Ok(V2MapKey { raw, safe })
         }
         0x80..=0x9F => {
             let len = (tag & 0x1F) as usize;
             let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
-            let key = decode_v2_str_bytes_raw(env, bytes)?;
-            state.keys.push(key);
-            Ok(key)
+            let safe = is_safe_map_key_bytes(bytes);
+            let raw = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(raw);
+            state.key_safe.push(safe);
+            Ok(V2MapKey { raw, safe })
         }
         0xCF => {
             let len = reader.read_u8().map_err(|e| invalid_arg(&e.to_string()))? as usize;
             let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
-            let key = decode_v2_str_bytes_raw(env, bytes)?;
-            state.keys.push(key);
-            Ok(key)
+            let safe = is_safe_map_key_bytes(bytes);
+            let raw = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(raw);
+            state.key_safe.push(safe);
+            Ok(V2MapKey { raw, safe })
         }
         0xD0 => {
             let b = reader.read_exact(2).map_err(|e| invalid_arg(&e.to_string()))?;
             let len = u16::from_le_bytes([b[0], b[1]]) as usize;
             let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
-            let key = decode_v2_str_bytes_raw(env, bytes)?;
-            state.keys.push(key);
-            Ok(key)
+            let safe = is_safe_map_key_bytes(bytes);
+            let raw = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(raw);
+            state.key_safe.push(safe);
+            Ok(V2MapKey { raw, safe })
         }
         0xD1 => {
             let b = reader.read_exact(4).map_err(|e| invalid_arg(&e.to_string()))?;
             let len = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
             let bytes = reader.read_exact(len).map_err(|e| invalid_arg(&e.to_string()))?;
-            let key = decode_v2_str_bytes_raw(env, bytes)?;
-            state.keys.push(key);
-            Ok(key)
+            let safe = is_safe_map_key_bytes(bytes);
+            let raw = decode_v2_str_bytes_raw(env, bytes)?;
+            state.keys.push(raw);
+            state.key_safe.push(safe);
+            Ok(V2MapKey { raw, safe })
         }
         _ => Err(invalid_arg("map key must be key_ref or string")),
     }

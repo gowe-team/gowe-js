@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { createSessionEncoder, decode, encode, init } from "../dist/index.js";
 import { encodeFast, tryDecodeFast } from "../dist/fast-codec.js";
+import { fromTransportValue } from "../dist/transport.js";
 import {
   createSessionEncoder as createAdvancedSessionEncoder,
   encodeBatch,
@@ -185,4 +186,42 @@ test("supports advanced session encoder APIs", async () => {
 
   assert.ok(first.length > 0);
   assert.ok(patch.length > 0);
+});
+
+test("rejects prototype pollution keys when decoding maps", async () => {
+  const attack = { polluted: true, isAdmin: true };
+  const dangerousKeys = ["__proto__", "constructor", "prototype"];
+
+  for (const key of dangerousKeys) {
+    const payload = JSON.parse(
+      `{"${key}":{"polluted":true,"isAdmin":true},"safe":"marker"}`,
+    );
+    const decoded = decode(encode(payload));
+    assert.equal(decoded.polluted, undefined);
+    assert.equal(decoded.isAdmin, undefined);
+    assert.equal(Object.hasOwn(decoded, key), false);
+    assert.equal(decoded.safe, "marker");
+    assert.notDeepEqual(Object.getPrototypeOf(decoded), attack);
+  }
+
+  const fastDecoded = tryDecodeFast(
+    encodeFast(JSON.parse('{"__proto__":{"polluted":true},"safe":"ok"}')),
+  );
+  assert.notEqual(fastDecoded, undefined);
+  assert.equal(fastDecoded.polluted, undefined);
+  assert.equal(fastDecoded.safe, "ok");
+  assert.equal(Object.hasOwn(fastDecoded, "__proto__"), false);
+});
+
+test("rejects prototype pollution keys in transport map conversion", async () => {
+  const decoded = fromTransportValue({
+    t: "map",
+    v: [
+      ["__proto__", { t: "map", v: [["polluted", { t: "bool", v: true }]] }],
+      ["safe", { t: "string", v: "ok" }],
+    ],
+  });
+  assert.equal(decoded.polluted, undefined);
+  assert.equal(decoded.safe, "ok");
+  assert.equal(Object.hasOwn(decoded, "__proto__"), false);
 });

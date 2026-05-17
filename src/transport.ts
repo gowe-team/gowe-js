@@ -1,3 +1,4 @@
+import { createDecodedMap, setDecodedMapEntry } from "./safe-map-key.js";
 import type { RecurramValue, Schema, SessionOptions } from "./types.js";
 
 export type TransportValue =
@@ -218,11 +219,11 @@ export function fromTransportValue(value: TransportValue): RecurramValue {
       return out;
     }
     case "map": {
-      const out: Record<string, RecurramValue> = {};
+      const out = createDecodedMap();
       const length = value.v.length;
       for (let index = 0; index < length; index += 1) {
         const entry = value.v[index];
-        out[entry[0]] = fromTransportValue(entry[1]);
+        setDecodedMapEntry(out, entry[0], fromTransportValue(entry[1]));
       }
       return out;
     }
@@ -480,11 +481,13 @@ function fromCompactValue(cv: CompactValue): RecurramValue {
     case 8: {
       // map: flat array [key1, val1, key2, val2, ...]
       const flat = (cv as readonly [number, unknown[]])[1];
-      const out: Record<string, RecurramValue> = {};
+      const out = createDecodedMap();
       const length = flat.length;
       for (let index = 0; index < length; index += 2) {
-        out[flat[index] as string] = fromCompactValue(
-          flat[index + 1] as CompactValue,
+        setDecodedMapEntry(
+          out,
+          flat[index] as string,
+          fromCompactValue(flat[index + 1] as CompactValue),
         );
       }
       return out;

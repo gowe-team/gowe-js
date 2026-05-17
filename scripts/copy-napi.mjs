@@ -9,7 +9,10 @@ const targetDir = path.join(root, "native");
 const platformKey = `${process.platform}-${process.arch}`;
 const targetFile = path.join(targetDir, `recurram_napi-${platformKey}.node`);
 
-const sourceFile = resolveSourceBinary(path.join(root, "target", "release"));
+const cargoTargetDir = process.env.CARGO_TARGET_DIR
+  ? path.resolve(process.env.CARGO_TARGET_DIR)
+  : path.join(root, "target");
+const sourceFile = resolveSourceBinary(path.join(cargoTargetDir, "release"));
 
 await mkdir(targetDir, { recursive: true });
 await copyFile(sourceFile, targetFile);

@@ -1,3 +1,4 @@
+import { createDecodedMap, setDecodedMapEntry } from "./safe-map-key.js";
 import type { RecurramValue } from "./types.js";
 
 const TAG_NULL = 0xc0;
@@ -661,7 +662,7 @@ function decodeFixMapInline(
   state: DecodeState,
   count: number,
 ): { [key: string]: RecurramValue } | typeof DECODE_FAIL {
-  const out: { [key: string]: RecurramValue } = {};
+  const out = createDecodedMap();
 
   for (let i = 0; i < count; i += 1) {
     let offset = reader.offset;
@@ -781,7 +782,7 @@ function decodeFixMapInline(
       value = fallbackValue;
     }
 
-    out[key] = value;
+    setDecodedMapEntry(out, key, value);
   }
 
   return out;
@@ -818,13 +819,13 @@ function readArrayValue(
     }
     state.shapes[shapeId] = keys;
     for (let i = 0; i < length; i += 1) {
-      const row: Record<string, RecurramValue> = {};
+      const row = createDecodedMap();
       for (let j = 0; j < keys.length; j += 1) {
         const item = readValueAuto(reader, state);
         if (item === DECODE_FAIL) {
           return DECODE_FAIL;
         }
-        row[keys[j]] = item;
+        setDecodedMapEntry(row, keys[j], item);
       }
       out[i] = row;
     }
@@ -850,7 +851,7 @@ function readMapValue(
   state: DecodeState,
   length: number,
 ): { [key: string]: RecurramValue } | typeof DECODE_FAIL {
-  const out: { [key: string]: RecurramValue } = {};
+  const out = createDecodedMap();
   for (let index = 0; index < length; index += 1) {
     const key = readKey(reader, state);
     if (key === DECODE_FAIL) {
@@ -860,7 +861,7 @@ function readMapValue(
     if (value === DECODE_FAIL) {
       return DECODE_FAIL;
     }
-    out[key] = value;
+    setDecodedMapEntry(out, key, value);
   }
 
   return out;
