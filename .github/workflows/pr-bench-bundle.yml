@@ -40,11 +40,11 @@ jobs:
           repository: ${{ github.repository_owner }}/twilic-rust
           path: workspace/twilic-rust
 
-      - name: Checkout twilic-bench
+      - name: Checkout benchmark
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/twilic-bench
-          path: workspace/twilic-bench
+          repository: ${{ github.repository_owner }}/benchmark
+          path: workspace/benchmark
 
       - name: Stash report tooling from PR head
         run: |
@@ -64,7 +64,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             workspace/twilic-js/pnpm-lock.yaml
-            workspace/twilic-bench/pnpm-lock.yaml
+            workspace/benchmark/pnpm-lock.yaml
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -115,13 +115,13 @@ jobs:
 
       - name: Install bench dependencies (PR)
         if: steps.build_pr.outcome == 'success'
-        working-directory: workspace/twilic-bench
+        working-directory: workspace/benchmark
         run: pnpm install --frozen-lockfile
 
       - name: Run benchmark (PR)
         id: bench_pr
         if: steps.build_pr.outcome == 'success'
-        working-directory: workspace/twilic-bench
+        working-directory: workspace/benchmark
         continue-on-error: true
         run: |
           pnpm exec tsx src/benchmark.ts \
@@ -156,13 +156,13 @@ jobs:
 
       - name: Install bench dependencies (base)
         if: steps.build_base.outcome == 'success'
-        working-directory: workspace/twilic-bench
+        working-directory: workspace/benchmark
         run: pnpm install --frozen-lockfile
 
       - name: Run benchmark (base)
         id: bench_base
         if: steps.build_base.outcome == 'success'
-        working-directory: workspace/twilic-bench
+        working-directory: workspace/benchmark
         continue-on-error: true
         run: |
           pnpm exec tsx src/benchmark.ts \
