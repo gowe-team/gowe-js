@@ -1,5 +1,5 @@
 {
-  "name": "twilic",
+  "name": "@twilic/core",
   "version": "2.0.0",
   "description": "Node.js and TypeScript implementation of a fast, compact binary wire format for modern data transport.",
   "type": "module",
@@ -54,6 +54,7 @@
     "prepare": "husky"
   },
   "keywords": [
+    "@twilic/core",
     "twilic",
     "rust",
     "napi",

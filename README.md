@@ -52,7 +52,12 @@ What it validates:
 ## Usage (Node)
 
 ```ts
-import { encode, decode, createSessionEncoder, type TwilicValue } from "twilic";
+import {
+  encode,
+  decode,
+  createSessionEncoder,
+  type TwilicValue,
+} from "@twilic/core";
 
 const value: TwilicValue = {
   id: 1001n,
@@ -80,7 +85,7 @@ import {
   encodeTransportJson,
   encodeWithSchema,
   toTransportJson,
-} from "twilic/advanced";
+} from "@twilic/core/advanced";
 ```
 
 This entrypoint contains:
@@ -94,7 +99,7 @@ This entrypoint contains:
 ## Usage (Browser)
 
 ```ts
-import { init, encode, decode } from "twilic";
+import { init, encode, decode } from "@twilic/core";
 
 await init({ prefer: "wasm" });
 
@@ -143,7 +148,7 @@ pnpm pack
 
 GitHub Actions publish uses [npm trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers/)—no long-lived `NPM_TOKEN` secret.
 
-One-time setup on [npmjs.com](https://www.npmjs.com/): open the package → **Settings** → **Trusted Publisher** → **GitHub Actions**, then set **Organization or user** `twilic`, **Repository** `twilic-js`, and **Workflow filename** `publish-npm.yml` (exact name, including `.yml`). See also [GitHub Actions OIDC](https://docs.github.com/en/actions/concepts/security/openid-connect).
+One-time setup on [npmjs.com](https://www.npmjs.com/package/@twilic/core): open the package → **Settings** → **Trusted Publisher** → **GitHub Actions**, then set **Organization or user** `twilic`, **Repository** `twilic-js`, and **Workflow filename** `publish-npm.yml` (exact name, including `.yml`). See also [GitHub Actions OIDC](https://docs.github.com/en/actions/concepts/security/openid-connect).
 
 Release steps:
 

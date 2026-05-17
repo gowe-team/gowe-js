@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Renamed the npm package from `twilic` to `@twilic/core`.
 - Renamed the project from Recurram to Twilic. Historical changelog entries still refer to Recurram and gowe where applicable.
 
 ### Added
