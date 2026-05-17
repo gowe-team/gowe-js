@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - GitHub issue templates (feature request and bug report) and pull request template.
+- CI `test-wasm` job that builds the WASM package and runs browser runtime tests.
+- PR workflow that posts benchmark and npm bundle-size diffs against the base branch.
 - Direct v2-to-JS NAPI decoder (`try_decode_v2_native`) that builds JS objects straight from v2 wire bytes without an intermediate Rust `Value` tree, improving `decode` throughput by ~72%.
 - `js_to_recurram_value` NAPI helper using raw NAPI API for JS→Rust value conversion with full `BigInt` support via `get_bigint_u64_raw` / `get_bigint_i64_raw`.
 - `encodeBatchNativeRaw` NAPI function that converts a JS array directly to `Vec<Value>` using the raw NAPI traversal API, avoiding `serde_json::Value` and the associated BigInt panic.
@@ -28,10 +30,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `EncodeState` Maps (`keyIds`, `stringIds`, `shapeIds`) are now pooled at module level and cleared per call instead of being recreated on every `encodeFast` invocation.
 - N-API backend `decode_native_napi` now skips the compact-protocol attempt for v2 bytes (first byte > `0x02`), avoiding wasted parsing work.
 - `recurram-bridge` and `recurram-napi` Cargo dependencies now reference the local `twilic-rust` crate via a workspace-relative path instead of the published `recurram = "0.1.0"`, ensuring the v2 codec is used throughout.
+- npm publish workflow updated to the current publishing method.
 
 ### Fixed
 
+- Map decoders reject attacker-controlled keys (`__proto__`, `constructor`, `prototype`) to prevent prototype pollution; the N-API decoder skips unsafe keys before `napi_set_property` / `napi_set_named_property`.
+- Published npm package now ships platform-specific native addons for Linux, macOS, and Windows instead of a single Linux binary loaded on all platforms.
 - CI workflow (`ci.yml`): added a `git clone` step to check out `twilic-rust` alongside `twilic-js` before the Rust build, fixing the `failed to read twilic-rust/Cargo.toml` error that caused all CI jobs to fail.
+- CI: pinned `wasm-pack` to v0.13.0 so the `--no-opt` flag used by `pnpm build:wasm` remains accepted.
+- CI: benchmark checkout uses the `benchmark` repository instead of `twilic-bench`.
 - `encodeBatchNativeRaw` no longer panics when the JS array contains `BigInt` values; the function now uses `JsUnknown` with raw NAPI traversal instead of `serde_json::Value`.
 
 ## [2.0.0] - 2026-05-01
